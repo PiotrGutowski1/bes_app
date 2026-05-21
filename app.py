@@ -24,7 +24,7 @@ try:
     # Zmień "pomiary_kolejki" na dokładną nazwę Twojej tabeli w Supabase
     # .order("created_at", desc=True) sortuje od najnowszych wpisów
     # .limit(100) pobiera ostatnie 100 rekordów, żeby nie przeciążać strony
-    response = supabase.table("pomiary_kolejki").select("*").order("created_at", desc=True).limit(100).execute()
+    response = supabase.table("queue_data").select("*").order("created_at", desc=True).limit(100).execute()
     
     # Konwersja wyniku na Pandas DataFrame
     data = response.data
