@@ -3,3 +3,4 @@ SQLAlchemy
 psycopg2-binary
 supabase
 pandas
+plotly
