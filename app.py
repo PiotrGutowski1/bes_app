@@ -1,62 +1,77 @@
 import streamlit as st
 from supabase import create_client, Client
 import pandas as pd
+import plotly.express as px
 
-# Konfiguracja strony
-st.set_page_config(page_title="Monitor Kolejki TTN + Supabase", layout="wide")
-st.title("📊 Panel Monitorowania Kolejki (Supabase)")
+# --- KONFIGURACJA ---
+st.set_page_config(page_title="Smart Queue Monitor", layout="wide", page_icon="🕒")
 
-# 1. Inicjalizacja klienta Supabase z wykorzystaniem Secrets
+# Stylizacja UI (Dark Mode)
+st.markdown("""
+    <style>
+    .status-box { padding: 20px; border-radius: 10px; text-align: center; font-weight: bold; }
+    .occupied { background-color: #ff4b4b; color: white; }
+    .free { background-color: #28a745; color: white; }
+    </style>
+""", unsafe_allow_html=True)
+
 @st.cache_resource
 def init_supabase() -> Client:
-    url = st.secrets["supabase"]["url"]
-    key = st.secrets["supabase"]["key"]
-    return create_client(url, key)
+    return create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
 
-try:
-    supabase = init_supabase()
-    
-    # Przycisk do ręcznego odświeżania danych
-    if st.button("🔄 Odśwież dane"):
-        st.rerun()
+supabase = init_supabase()
 
-    # 2. Pobieranie danych z tabeli Supabase
-    # Zmień "pomiary_kolejki" na dokładną nazwę Twojej tabeli w Supabase
-    # .order("created_at", desc=True) sortuje od najnowszych wpisów
-    # .limit(100) pobiera ostatnie 100 rekordów, żeby nie przeciążać strony
+# --- LOGIKA POBIERANIA DANYCH ---
+def get_data():
+    # Pobieramy 100 ostatnich wpisów
     response = supabase.table("queue_data").select("*").order("created_at", desc=True).limit(100).execute()
-    
-    # Konwersja wyniku na Pandas DataFrame
-    data = response.data
-    
-    if data:
-        df = pd.DataFrame(data)
-        
-        # Tworzenie układu dwukolumnowego w Streamlit
-        col1, col2 = st.columns([2, 1])
-        
-        with col1:
-            st.subheader("Ostatnie zdarzenia w kolejce")
-            # Wyświetlamy ładną tabelę
-            st.dataframe(df, use_container_width=True)
-            
-        with col2:
-            st.subheader("Aktualny stan systemu")
-            
-            # Zakładamy przykładowe kolumny: 'at_window' (czy ktoś stoi przy okienku) 
-            # oraz 'time_in_queue_sec' (czas spędzony w kolejce)
-            if 'at_window' in df.columns:
-                current_status = "ZAJĘTE" if df['at_window'].iloc[0] == True else "WOLNE"
-                st.image("https://img.icons8.com/color/96/user.png" if current_status == "ZAJĘTE" else "https://img.icons8.com/color/96/empty-box.png", width=60)
-                st.metric(label="Okienko obsługi", value=current_status)
-                
-            if 'time_in_queue_sec' in df.columns:
-                avg_time = df['time_in_queue_sec'].mean()
-                st.metric(label="Średni czas w kolejce", value=f"{int(avg_time)} sek")
-                
-    else:
-        st.info("Połączono z Supabase, ale tabela jest pusta. Czekam na pierwsze dane z The Things Network!")
+    return pd.DataFrame(response.data)
 
-except Exception as e:
-    st.error(f"Błąd podczas połączenia z Supabase: {e}")
-    st.info("Sprawdź czy URL oraz API Key w sekretach są poprawne oraz czy nazwa tabeli w kodzie się zgadza.")
+# --- UI ---
+st.title("🕒 Monitor Stanu Kolejki LoRaWAN")
+st.info("System monitoruje wejście (Miejsce 1) oraz stanowisko obsługi (Miejsce 2).")
+
+if st.button("🔄 Odśwież Dane"):
+    st.rerun()
+
+df = get_data()
+
+if not df.empty:
+    # 1. WIDOK AKTUALNY (Ostatni rekord)
+    latest = df.iloc[0]
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        status1 = "ZAJĘTE" if latest['miejsce1'] else "WOLNE"
+        st.markdown(f"### Wejście (PIR 1)")
+        st.markdown(f'<div class="status-box {"occupied" if latest["miejsce1"] else "free"}">{status1}</div>', unsafe_allow_html=True)
+        
+    with col2:
+        status2 = "ZAJĘTE" if latest['miejsce2'] else "WOLNE"
+        st.markdown(f"### Przy Okienku (PIR 2)")
+        st.markdown(f'<div class="status-box {"occupied" if latest["miejsce2"] else "free"}">{status2}</div>', unsafe_allow_html=True)
+        
+    with col3:
+        avg_wait = df['czas_sekundy'].mean()
+        st.metric("Średni czas czekania", f"{avg_wait:.1f} s", delta_color="inverse")
+
+    st.divider()
+
+    # 2. WYKRES TRENDÓW
+    st.subheader("📈 Historia Czasu Oczekiwania")
+    # Konwersja czasu na czytelny format
+    df['created_at'] = pd.to_datetime(df['created_at'])
+    fig = px.area(df, x="created_at", y="czas_sekundy", 
+                  title="Czas spędzony w kolejce (sekundy)",
+                  labels={"created_at": "Czas zdarzenia", "czas_sekundy": "Sekundy"},
+                  color_discrete_sequence=['#deff9a'])
+    fig.update_layout(template="plotly_dark", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+    st.plotly_chart(fig, use_container_width=True)
+
+    # 3. TABELA LOGÓW
+    st.subheader("📋 Ostatnie Logi Systemowe")
+    st.dataframe(df[['created_at', 'device_id', 'miejsce1', 'miejsce2', 'czas_sekundy']], use_container_width=True)
+
+else:
+    st.warning("Brak danych w tabeli queue_data. Upewnij się, że urządzenie wysyła dane.")
