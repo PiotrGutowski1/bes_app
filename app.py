@@ -3,14 +3,10 @@ from supabase import create_client, Client
 import pandas as pd
 import plotly.express as px
 
-# Konfiguracja sesji i interfejsu
-st.set_page_config(
-    page_title="System Analizy Przepustowości Kolejek", 
-    layout="wide", 
-    initial_sidebar_state="collapsed"
-)
+# Konfiguracja strony
+st.set_page_config(page_title="Monitor Kolejki", layout="wide")
 
-# Inicjalizacja połączenia z bazą danych Supabase
+# Połączenie z Supabase
 @st.cache_resource
 def init_supabase() -> Client:
     return create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
@@ -18,120 +14,91 @@ def init_supabase() -> Client:
 try:
     supabase = init_supabase()
 except Exception as e:
-    st.error(f"Błąd inicjalizacji połączenia z bazą danych: {e}")
+    st.error(f"Błąd połączenia z bazą: {e}")
     st.stop()
 
-# Pobieranie danych telemetrycznych
-def fetch_telemetry_data():
+# Pobieranie danych
+def fetch_data():
     try:
         response = supabase.table("queue_data").select("*").order("created_at", desc=True).limit(100).execute()
         return pd.DataFrame(response.data)
     except Exception as e:
-        st.error(f"Błąd pobierania danych z serwera: {e}")
+        st.error(f"Błąd pobierania danych: {e}")
         return pd.DataFrame()
 
-# Nagłówek systemu
-st.title("Panel Analityczny Przepustowości Stanowisk")
-st.caption("System monitorowania obciążenia punktów obsługi w oparciu o architekturę sensorów odległościowych i ruchu.")
+# Nagłówek aplikacji
+st.title("Monitor Kolejki")
 
-# Panel kontrolny
-col_refresh, _ = st.columns([1, 5])
-with col_refresh:
-    if st.button("Odśwież dane systemowe", use_container_width=True):
-        st.rerun()
+if st.button("Odśwież dane"):
+    st.rerun()
 
-# Pobranie i weryfikacja danych
-df = fetch_telemetry_data()
+df = fetch_data()
 
 if not df.empty:
-    # Konwersja znaczników czasu
     df['created_at'] = pd.to_datetime(df['created_at'])
-    latest_event = df.iloc[0]
+    latest = df.iloc[0]
     
-    st.subheader("Status operacyjny (Ostatnie zdarzenie rejestrowane na wyjściu)")
+    # Główne wskaźniki
+    m1, m2, m3 = st.columns(3)
     
-    # Sekcja metryk głównych
-    metric_col1, metric_col2, metric_col3 = st.columns(3)
-    
-    with metric_col1:
+    with m1:
         st.metric(
-            label="Stanowisko Obsługi (Pozycja 1)",
-            value="Zajęte" if latest_event['miejsce2'] else "Wolne",
-            delta="Detekcja obiektu" if latest_event['miejsce2'] else "Brak obiektu",
-            delta_color="normal" if latest_event['miejsce2'] else "off"
+            label="Miejsce 1 (Okienko)",
+            value="Zajęte" if latest['miejsce2'] else "Wolne"
         )
         
-    with metric_col2:
+    with m2:
         st.metric(
-            label="Bufor Kolejki (Pozycja 5)",
-            value="Wykryto zator" if latest_event['miejsce1'] else "Norma",
-            delta="Przekroczono limit długości" if latest_event['miejsce1'] else "Optymalna przepustowość",
-            delta_color="inverse" if latest_event['miejsce1'] else "normal"
+            label="Miejsce 5 (Koniec kolejki)",
+            value="Zajęte" if latest['miejsce1'] else "Wolne"
         )
         
-    with metric_col3:
+    with m3:
         st.metric(
-            label="Czas ostatniego cyklu obsługi",
-            value=f"{latest_event['czas_sekundy']} s",
-            delta="Dane z sensora wyjściowego"
+            label="Ostatni czas obsługi",
+            value=f"{latest['czas_sekundy']} s"
         )
-
-    st.subheader("Architektura rozmieszczenia sensorów i stan sekcji")
-    
-    # Wizualizacja przestrzenna oparta na statusach komponentów
-    zone1, zone2, zone3, zone4, zone5, zone_exit = st.columns(6)
-    
-    with zone1:
-        st.markdown("**Pozycja 1 (Okienko)**")
-        if latest_event['miejsce2']:
-            st.error("Status: Aktywny")
-        else:
-            st.success("Status: Pusty")
-        st.caption("Sensor odległości nr 1")
-        
-    with zone2:
-        st.markdown("**Pozycja 2**")
-        st.info("Strefa tranzytowa")
-        
-    with zone3:
-        st.markdown("**Pozycja 3**")
-        st.info("Strefa tranzytowa")
-        
-    with zone4:
-        st.markdown("**Pozycja 4**")
-        st.info("Strefa tranzytowa")
-        
-    with zone5:
-        st.markdown("**Pozycja 5 (Ogon)**")
-        if latest_event['miejsce1']:
-            st.error("Status: Przepełnienie")
-        else:
-            st.success("Status: Norma")
-        st.caption("Sensor odległości nr 2")
-        
-    with zone_exit:
-        st.markdown("**Brama wyjściowa**")
-        st.warning("Rejestrator logów")
-        st.caption("Sensor ruchu PIR")
 
     st.divider()
 
-    # Sekcja analizy wykresów
-    chart_col1, chart_col2 = st.columns([3, 2])
+    # Stan czujników
+    st.subheader("Aktualny stan czujników")
+    c1, c2, c3 = st.columns(3)
     
-    with chart_col1:
-        st.subheader("Wykres dystrybucji czasu obsługi")
+    with c1:
+        st.markdown("**Czujnik odległości 1 (Okienko)**")
+        if latest['miejsce2']:
+            st.error("Wykryto obecność")
+        else:
+            st.success("Brak obecności")
         
-        # Profesjonalny wykres punktowy z linią trendu
+    with c2:
+        st.markdown("**Czujnik odległości 2 (Koniec kolejki)**")
+        if latest['miejsce1']:
+            st.error("Wykryto obecność")
+        else:
+            st.success("Brak obecności")
+        
+    with c3:
+        st.markdown("**Czujnik PIR (Wyjście)**")
+        st.info("Oczekiwanie na impuls wyjścia")
+
+    st.divider()
+
+    # Wykres i tabela
+    chart_col, table_col = st.columns([3, 2])
+    
+    with chart_col:
+        st.subheader("Czas obsługi kolejnych osób")
         fig = px.scatter(
             df, 
             x='created_at', 
             y='czas_sekundy', 
             color='miejsce1',
             labels={
-                'czas_sekundy': 'Czas operacyjny (sekundy)', 
-                'created_at': 'Znacznik czasu zdarzenia', 
-                'miejsce1': 'Wystąpienie zatoru w kolejce'
+                'czas_sekundy': 'Czas (sekundy)', 
+                'created_at': 'Czas zdarzenia', 
+                'miejsce1': 'Zajęte miejsce 5'
             },
             color_discrete_map={True: '#EF4444', False: '#10B981'},
             template="plotly_white"
@@ -142,18 +109,11 @@ if not df.empty:
         )
         st.plotly_chart(fig, use_container_width=True)
         
-    with chart_col2:
-        st.subheader("Dziennik zdarzeń systemowych")
-        
-        # Przygotowanie czytelnej tabeli danych
+    with table_col:
+        st.subheader("Ostatnie wpisy w bazie")
         log_df = df[['created_at', 'miejsce2', 'miejsce1', 'czas_sekundy']].copy()
-        log_df.columns = ['Data i godzina', 'Stanowisko (Poz. 1)', 'Zator (Poz. 5)', 'Czas obsługi (s)']
-        
-        st.dataframe(
-            log_df, 
-            use_container_width=True, 
-            hide_index=True
-        )
+        log_df.columns = ['Czas', 'Miejsce 1', 'Miejsce 5', 'Czas (s)']
+        st.dataframe(log_df, use_container_width=True, hide_index=True)
 
 else:
-    st.info("Brak zarejestrowanych danych w systemie. Oczekiwanie na sygnał z sensora wyjściowego.")
+    st.info("Brak danych w bazie. System czeka na pierwsze zdarzenie z czujnika wyjściowego.")
