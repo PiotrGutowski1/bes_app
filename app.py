@@ -38,8 +38,11 @@ if not df.empty:
     df['created_at'] = pd.to_datetime(df['created_at'])
     latest = df.iloc[0]
     
-    # Główne wskaźniki
-    m1, m2, m3 = st.columns(3)
+    # Obliczanie średniego czasu obsługi
+    avg_time = df['czas_sekundy'].mean()
+    
+    # Główne wskaźniki (teraz 4 kolumny)
+    m1, m2, m3, m4 = st.columns(4)
     
     with m1:
         st.metric(
@@ -57,6 +60,12 @@ if not df.empty:
         st.metric(
             label="Ostatni czas obsługi",
             value=f"{latest['czas_sekundy']} s"
+        )
+        
+    with m4:
+        st.metric(
+            label="Średni czas obsługi",
+            value=f"{avg_time:.1f} s"
         )
 
     st.divider()
