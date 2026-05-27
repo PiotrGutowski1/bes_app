@@ -35,13 +35,18 @@ if st.button("Odśwież dane"):
 df = fetch_data()
 
 if not df.empty:
+    # Konwersja na typ datetime
     df['created_at'] = pd.to_datetime(df['created_at'])
+    
+    # POPRAWKA STREFY CZASOWEJ: Dodanie 2 godzin do timestampu
+    df['created_at'] = df['created_at'] + pd.Timedelta(hours=2)
+    
     latest = df.iloc[0]
     
     # Obliczanie średniego czasu obsługi
     avg_time = df['czas_sekundy'].mean()
     
-    # Główne wskaźniki (teraz 4 kolumny)
+    # Główne wskaźniki
     m1, m2, m3, m4 = st.columns(4)
     
     with m1:
@@ -94,7 +99,7 @@ if not df.empty:
 
     st.divider()
 
-    # Wykres i tabela
+    # Wykres i tabela (Obydwa elementy korzystają z poprawionej kolumny 'created_at')
     chart_col, table_col = st.columns([3, 2])
     
     with chart_col:
@@ -121,6 +126,10 @@ if not df.empty:
     with table_col:
         st.subheader("Ostatnie wpisy w bazie")
         log_df = df[['created_at', 'miejsce2', 'miejsce1', 'czas_sekundy']].copy()
+        
+        # Formatowanie wyświetlania daty i godziny w tabeli do czytelnego formatu (RRRR-MM-DD GG:MM:SS)
+        log_df['created_at'] = log_df['created_at'].dt.strftime('%Y-%m-%d %H:%M:%S')
+        
         log_df.columns = ['Czas', 'Miejsce 1', 'Miejsce 5', 'Czas (s)']
         st.dataframe(log_df, use_container_width=True, hide_index=True)
 
