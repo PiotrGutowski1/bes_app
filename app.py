@@ -3,75 +3,72 @@ from supabase import create_client, Client
 import pandas as pd
 import plotly.express as px
 
-# --- KONFIGURACJA ---
-st.set_page_config(page_title="Smart Queue Monitor", layout="wide", page_icon="🕒")
+# --- KONFIGURACJA STRONY ---
+st.set_page_config(page_title="Monitor Kolejki 1-5", layout="wide", page_icon="📏")
 
-# Stylizacja UI (Dark Mode)
-st.markdown("""
-    <style>
-    .status-box { padding: 20px; border-radius: 10px; text-align: center; font-weight: bold; }
-    .occupied { background-color: #ff4b4b; color: white; }
-    .free { background-color: #28a745; color: white; }
-    </style>
-""", unsafe_allow_html=True)
-
+# Inicjalizacja Supabase
 @st.cache_resource
 def init_supabase() -> Client:
     return create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
 
 supabase = init_supabase()
 
-# --- LOGIKA POBIERANIA DANYCH ---
+# Pobieranie danych
 def get_data():
-    # Pobieramy 100 ostatnich wpisów
     response = supabase.table("queue_data").select("*").order("created_at", desc=True).limit(100).execute()
     return pd.DataFrame(response.data)
 
-# --- UI ---
-st.title("🕒 Monitor Stanu Kolejki LoRaWAN")
-st.info("System monitoruje wejście (Miejsce 1) oraz stanowisko obsługi (Miejsce 2).")
-
-if st.button("🔄 Odśwież Dane"):
-    st.rerun()
+# --- INTERFEJS ---
+st.title("🕒 Monitor Przepustowości Kolejki (Poz. 1 & 5)")
+st.markdown("Monitorowanie zajętości okienka (**Poz. 1**) oraz końca kolejki (**Poz. 5**).")
 
 df = get_data()
 
 if not df.empty:
-    # 1. WIDOK AKTUALNY (Ostatni rekord)
     latest = df.iloc[0]
     
-    col1, col2, col3 = st.columns(3)
+    # GŁÓWNE WSKAŹNIKI
+    m1, m2, m3 = st.columns(3)
     
-    with col1:
-        status1 = "ZAJĘTE" if latest['miejsce1'] else "WOLNE"
-        st.markdown(f"### Wejście (PIR 1)")
-        st.markdown(f'<div class="status-box {"occupied" if latest["miejsce1"] else "free"}">{status1}</div>', unsafe_allow_html=True)
+    with m1:
+        # CZUJNIK 2 -> MIEJSCE 1 (Przy okienku)
+        st.metric("Stan: Przy Okienku (Poz. 1)", 
+                  "ZAJĘTE" if latest['miejsce2'] else "WOLNE",
+                  delta="Obsługa w toku" if latest['miejsce2'] else "Oczekiwanie",
+                  delta_color="normal" if latest['miejsce2'] else "inverse")
         
-    with col2:
-        status2 = "ZAJĘTE" if latest['miejsce2'] else "WOLNE"
-        st.markdown(f"### Przy Okienku (PIR 2)")
-        st.markdown(f'<div class="status-box {"occupied" if latest["miejsce2"] else "free"}">{status2}</div>', unsafe_allow_html=True)
+    with m2:
+        # CZUJNIK 1 -> MIEJSCE 5 (Koniec kolejki)
+        st.metric("Stan: Koniec Kolejki (Poz. 5)", 
+                  "DŁUGA" if latest['miejsce1'] else "KRÓTKA",
+                  delta="Wymagana pomoc" if latest['miejsce1'] else "Stabilnie",
+                  delta_color="inverse" if latest['miejsce1'] else "normal")
         
-    with col3:
+    with m3:
         avg_wait = df['czas_sekundy'].mean()
-        st.metric("Średni czas czekania", f"{avg_wait:.1f} s", delta_color="inverse")
+        st.metric("Średni czas w kolejce", f"{avg_wait:.0f} s")
 
     st.divider()
 
-    # 2. WYKRES TRENDÓW
-    st.subheader("📈 Historia Czasu Oczekiwania")
-    # Konwersja czasu na czytelny format
-    df['created_at'] = pd.to_datetime(df['created_at'])
-    fig = px.area(df, x="created_at", y="czas_sekundy", 
-                  title="Czas spędzony w kolejce (sekundy)",
-                  labels={"created_at": "Czas zdarzenia", "czas_sekundy": "Sekundy"},
-                  color_discrete_sequence=['#deff9a'])
-    fig.update_layout(template="plotly_dark", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
-    st.plotly_chart(fig, use_container_width=True)
+    # WIZUALIZACJA KOLEJKI
+    st.subheader("📍 Podgląd Przestrzenny")
+    q_col1, q_col2, q_col3, q_col4, q_col5 = st.columns(5)
+    
+    # Poz 1 (Czujnik 2)
+    q_col1.info("👤 **Poz. 1**" if latest['miejsce2'] else "⚪ Poz. 1")
+    q_col1.caption("Przy okienku")
+    
+    # Poz 2-4 (Symulacja/Puste)
+    q_col2.text("---")
+    q_col3.text("---")
+    q_col4.text("---")
+    
+    # Poz 5 (Czujnik 1)
+    q_col5.error("👤 **Poz. 5**" if latest['miejsce1'] else "⚪ Poz. 5")
+    q_col5.caption("Koniec kolejki")
 
-    # 3. TABELA LOGÓW
-    st.subheader("📋 Ostatnie Logi Systemowe")
-    st.dataframe(df[['created_at', 'device_id', 'miejsce1', 'miejsce2', 'czas_sekundy']], use_container_width=True)
+    # HISTORIA
+    st.plotly_chart(px.line(df, x='created_at', y='czas_sekundy', title="Czas obsługi w czasie"), use_container_width=True)
 
 else:
-    st.warning("Brak danych w tabeli queue_data. Upewnij się, że urządzenie wysyła dane.")
+    st.warning("Czekam na dane z sensorów...")
